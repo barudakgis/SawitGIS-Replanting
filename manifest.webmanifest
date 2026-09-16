@@ -1,0 +1,16 @@
+{
+  "name": "SawitGIS Replanting",
+  "short_name": "SawitGIS",
+  "description": "Perencanaan replanting kelapa sawit: skoring MCDA, roadmap, survei lapangan, cetak peta",
+  "lang": "id",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1F3D2B",
+  "theme_color": "#1F3D2B",
+  "icons": [
+    { "src": "ikon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "ikon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

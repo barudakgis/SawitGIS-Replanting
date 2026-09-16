@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1F3D2B"/>
+  <g fill="#3F7D4E">
+    <path d="M256 250 C200 170 120 150 70 175 C130 170 190 200 240 262Z"/>
+    <path d="M256 250 C312 170 392 150 442 175 C382 170 322 200 272 262Z"/>
+    <path d="M256 245 C230 150 180 100 120 95 C180 125 220 170 244 255Z"/>
+    <path d="M256 245 C282 150 332 100 392 95 C332 125 292 170 268 255Z"/>
+    <path d="M256 240 C250 160 256 100 262 60 C276 110 276 170 262 245Z"/>
+  </g>
+  <rect x="244" y="240" width="24" height="170" fill="#8A5A3B"/>
+  <rect x="150" y="360" width="212" height="86" rx="6" fill="#F2C230" stroke="#111" stroke-width="10"/>
+  <text x="256" y="424" font-family="Arial,Helvetica,sans-serif" font-size="58" font-weight="900" text-anchor="middle" fill="#111" letter-spacing="4">GIS</text>
+</svg>
