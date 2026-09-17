@@ -857,7 +857,7 @@ svg text{font-family:var(--fon)}
  * persis; jangan menyunting salinannya, sunting berkas ini lalu rakit ulang.
  * ===================================================================== */
 
-var MESIN_VERSI = '1.0.0';
+var MESIN_VERSI = '1.1.0';
 
 var KRITERIA = [
   { k: 'umur', label: 'Umur tanaman' },
@@ -1333,7 +1333,7 @@ var LISENSI_LEAFLET = "BSD 2-Clause License\n\nCopyright (c) 2010-2023, Volodymy
 </script>
 <script>
 /* ================= 01-inti.js : keadaan, API, luring ================= */
-var VERSI_KLIEN = '1.0.0';
+var VERSI_KLIEN = '1.1.0';
 var MODE = (typeof google !== 'undefined' && google.script && google.script.run) ? 'gas' : 'pwa';
 var KUNCI_TOKEN = 'sgis_token', KUNCI_DATA = 'sgis_data_v1', KUNCI_ANTREAN = 'sgis_antrean_v1', KUNCI_PREF = 'sgis_pref_v1';
 var AKSI_ANTREAN = { survei_simpan: 1, produksi_simpan: 1 };
@@ -1448,7 +1448,14 @@ function sinkronkanAntrean() {
 
 function simpanCache() {
   if (!S.data) return;
-  var ok = simpanLokal(KUNCI_DATA, { disimpan: new Date().toISOString(), data: S.data });
+  var paket = { disimpan: new Date().toISOString(), data: S.data };
+  var ok = simpanLokal(KUNCI_DATA, paket);
+  if (!ok) {
+    // Penyimpanan peramban ± 5 MB. Buang dulu isi lapisan GeoJSON (dapat diambil ulang saat tersambung), baru coba lagi.
+    var ringan = Object.assign({}, S.data, { lapisan: (S.data.lapisan || []).map(function (l) { return l.data ? Object.assign({}, l, { data: '', dataTerpisah: true, ukuranData: l.data.length }) : l; }) });
+    ok = simpanLokal(KUNCI_DATA, { disimpan: paket.disimpan, data: ringan, ringan: true });
+    if (ok && !S._peringatanRingan) { S._peringatanRingan = true; toast('Penyimpanan perangkat hampir penuh: lapisan GeoJSON tidak disimpan untuk luring', true); }
+  }
   if (!ok && !S._peringatanCache) { S._peringatanCache = true; toast('Penyimpanan perangkat penuh: data luring tidak dapat diperbarui', true); }
 }
 
@@ -1663,10 +1670,10 @@ function pilihBerkas(terima, banyak) {
 function bacaTeks(f) { return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = no; r.readAsText(f); }); }
 function bacaBiner(f) { return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = no; r.readAsArrayBuffer(f); }); }
 /* Kompres foto ke JPEG yang muat dalam satu sel Sheets (< 45.000 karakter). */
-function kompresFoto(f, sisiMaks) {
+function kompresFoto(f, sisiMaks, batasKarakter) {
   sisiMaks = sisiMaks || 1280;
   function dariGambar(img, w0, h0) {
-    var batas = 45000, sisi = sisiMaks, mutu = 0.72, url = '';
+    var batas = batasKarakter || 45000, sisi = sisiMaks, mutu = 0.72, url = '';
     for (var coba = 0; coba < 8; coba++) {
       var s = Math.min(1, sisi / Math.max(w0, h0)), w = Math.round(w0 * s), h = Math.round(h0 * s);
       var c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -1675,7 +1682,7 @@ function kompresFoto(f, sisiMaks) {
       if (url.length <= batas) return url;
       if (mutu > 0.45) mutu -= 0.12; else sisi = Math.round(sisi * 0.75);
     }
-    throw new Error('Foto tidak dapat dikecilkan di bawah batas sel');
+    throw new Error('Foto tidak dapat dikecilkan di bawah ' + Math.round(batas * 0.75 / 1024) + ' KB');
   }
   if (window.createImageBitmap) {
     return createImageBitmap(f).then(function (bmp) { var u = dariGambar(bmp, bmp.width, bmp.height); if (bmp.close) bmp.close(); return u; });
@@ -1813,6 +1820,11 @@ function renderSpanduk() {
   var l = S.data.lisensi;
   if (l && !l.bolehTulis) h += '<div class="spanduk bahaya"><b>Mode pembaca.</b> ' + esc(l.ringkas) + (bolehAdmin() ? ' <button data-ke="setelan:lisensi">Pasang lisensi</button>' : '') + '</div>';
   else if (l && l.status === 'uji') h += '<div class="spanduk info">' + esc(l.ringkas) + '</div>';
+  var pn = S.data.penyimpanan;
+  if (pn && bolehAdmin()) {
+    if (pn.berkasRusak && pn.berkasRusak.length) h += '<div class="spanduk bahaya"><b>Data besar tidak utuh:</b> ' + esc(pn.berkasRusak.map(function (x) { return x.lembar + ' ' + x.kunci + ' (' + x.kolom + ')'; }).join(', ')) + '. Kemungkinan baris lembar "Berkas" terhapus manual. Pulihkan dari riwayat versi Spreadsheet. <button data-ke="setelan:perangkat">Rincian</button></div>';
+    if (pn.kapasitas && pn.kapasitas.persen >= 80) h += '<div class="spanduk ' + (pn.kapasitas.persen >= 92 ? 'bahaya' : 'waspada') + '"><b>Spreadsheet ' + fAngka(pn.kapasitas.persen, 1) + '% penuh</b> (batas Google 10 juta sel). <button data-ke="setelan:perangkat">Rapikan</button></div>';
+  }
   if (!S.online || S.dariCache) h += '<div class="spanduk waspada"><b>Luring.</b> Menampilkan data tersimpan di perangkat' + (S.data._disimpan ? ' per ' + fWaktu(S.data._disimpan) : '') + '. Survei dan produksi yang dicatat akan dikirim otomatis saat tersambung.' + (S.online ? ' <button id="tblMuatUlang">Muat ulang dari peladen</button>' : '') + '</div>';
   if (S.antrean.length) {
     var gagalN = S.antrean.filter(function (x) { return x.galat; }).length;
@@ -2041,6 +2053,11 @@ function gambarLapisanPengguna() {
     if (!l.tampil || sembunyi[l.id]) return;
     try {
       var lyr;
+      if (l.jenis === 'geojson' && l.dataTerpisah && !l.data) {
+        var tersedia = (S._dataLapisan || {})[l.id];
+        if (tersedia) l = Object.assign({}, l, { data: tersedia });
+        else { muatLapisanTerpisah(l); return; }
+      }
       if (l.jenis === 'geojson') lyr = L.geoJSON(JSON.parse(l.data), { style: { color: l.warna, weight: 2, fillOpacity: 0.15 * (l.opasitas || 0.8) }, pointToLayer: function (f, ll) { return L.circleMarker(ll, { radius: 5, color: l.warna }); }, onEachFeature: function (f, x) { var pr = f.properties || {}; var n = pr.nama || pr.name || pr.NAMA || ''; if (n) x.bindTooltip(esc(n)); } });
       else if (l.jenis === 'xyz') lyr = L.tileLayer(l.url, { opacity: l.opasitas, attribution: esc(l.atribusi) });
       else if (l.jenis === 'wms') lyr = L.tileLayer.wms(l.url, { layers: l.lapisWms, format: 'image/png', transparent: true, opacity: l.opasitas, attribution: esc(l.atribusi) });
@@ -2049,6 +2066,20 @@ function gambarLapisanPengguna() {
   });
 }
 
+/* Lapisan GeoJSON besar tidak ikut data awal; diambil sekali per sesi lalu digambar. */
+function muatLapisanTerpisah(l) {
+  S._dataLapisan = S._dataLapisan || {}; S._lapisanDimuat = S._lapisanDimuat || {};
+  if (S._lapisanDimuat[l.id]) return;
+  if (!S.online) { if (!S._lapisanLuringDiberitahu) { S._lapisanLuringDiberitahu = true; toast('Lapisan "' + l.nama + '" (' + fAngka(l.ukuranData / 1048576, 1) + ' MB) hanya tampil saat tersambung', true); } return; }
+  S._lapisanDimuat[l.id] = true;
+  toast('Memuat lapisan "' + l.nama + '" (' + fAngka(l.ukuranData / 1048576, 1) + ' MB)…');
+  api('lapisan_data', { id: l.id }).then(function (teks) {
+    S._dataLapisan[l.id] = teks;
+    if (!P.peta) return;
+    P.lapUser.forEach(function (x) { P.peta.removeLayer(x); }); P.lapUser = [];
+    gambarLapisanPengguna(); if (P.lapBlok) P.lapBlok.bringToFront();
+  }).catch(function (e) { S._lapisanDimuat[l.id] = false; galatKeToast(e); });
+}
 function bukaPanelLapisan() {
   var sembunyi = S.pref.lapisanSembunyi || {};
   var h = '<label class="cek"><input type="checkbox" id="lpLabel"' + (S.pref.label !== false ? ' checked' : '') + '> Label ID blok</label>' +
@@ -2745,7 +2776,7 @@ function utmKeLatLng(x, y, zona, selatan) {
   var lon = (D - (1 + 2 * T + C) * Math.pow(D, 3) / 6 + (5 - 2 * C + 28 * T - 3 * C * C + 8 * ep2 + 24 * T * T) * Math.pow(D, 5) / 120) / c;
   return [lat * 180 / Math.PI, (zona - 1) * 6 - 180 + 3 + lon * 180 / Math.PI];
 }
-/* Douglas-Peucker bertahap agar poligon muat batas 1.500 titik di peladen. */
+/* Douglas-Peucker bertahap: poligon blok di atas 5.000 titik disederhanakan (batas peladen 10.000). */
 function sederhanakanPoligon(pg, maks) {
   if (pg.length <= maks) return pg;
   function dp(titik, tol) {
@@ -2785,7 +2816,7 @@ function pratinjauGeometri(hsl) {
     siap = fitur.map(function (f) {
       var id = String(f.atribut[kol] === undefined ? '' : f.atribut[kol]).trim();
       var cocok = ada[id.toLowerCase()];
-      var pg = sederhanakanPoligon(f.poligon, 1500);
+      var pg = sederhanakanPoligon(f.poligon, 5000);
       var status = !id ? 'tanpa ID' : lihat[id.toLowerCase()] ? 'ganda' : cocok ? 'perbarui' : buatBaru ? 'baru' : 'dilewati';
       if (id) lihat[id.toLowerCase()] = 1;
       return { id: cocok || id, pg: pg, disederhanakan: pg.length < f.poligon.length, status: status, luas: luasPoligonHa(pg) };
@@ -2794,7 +2825,7 @@ function pratinjauGeometri(hsl) {
     siap.forEach(function (s) { if (n[s.status] !== undefined) n[s.status]++; });
     $('#geoTabel').innerHTML = '<p><b>' + n.perbarui + '</b> diperbarui, <b>' + n.baru + '</b> baru, ' + (siap.length - n.perbarui - n.baru) + ' dilewati.</p><div class="tabel-bungkus" style="max-height:40vh"><table><thead><tr><th>ID</th><th>Tindakan</th><th class="n">Luas ha</th><th class="n">Luas lama</th><th class="n">Titik</th></tr></thead><tbody>' +
       siap.slice(0, 500).map(function (s) { var lama = S.blokPer[s.id]; return '<tr><td>' + esc(s.id || '–') + '</td><td>' + esc(s.status) + '</td><td class="n">' + fAngka(s.luas, 2) + '</td><td class="n">' + (lama ? fAngka(lama.luasGisHa || lama.luasAdminHa, 2) : '–') + '</td><td class="n">' + s.pg.length + (s.disederhanakan ? '*' : '') + '</td></tr>'; }).join('') +
-      '</tbody></table></div><p class="kecil redup">* disederhanakan agar ≤ 1.500 titik. Luas GIS akhir dihitung ulang oleh peladen.</p>';
+      '</tbody></table></div><p class="kecil redup">* disederhanakan agar ≤ 5.000 titik supaya peta tetap ringan. Luas GIS akhir dihitung ulang oleh peladen.</p>';
   }
   if ($('#f_geoKolom')) $('#f_geoKolom').onchange = susun;
   $('#geoBaru').onchange = susun;
@@ -3236,7 +3267,7 @@ function bukaFormSurvei(blokId, lama) {
     pilihBerkas('image/*').then(function (f) {
       if (!f.length) return;
       var ukuran = f[0].size; $('#svFotoInfo').textContent = 'Mengecilkan…';
-      return kompresFoto(f[0]).then(function (url) {
+      return kompresFoto(f[0], 1600, 150000).then(function (url) {
         foto = url; fotoDiubah = true;
         $('#svFotoPrev').src = url; $('#svFotoPrev').style.display = 'block'; $('#svFotoHapus').style.display = '';
         $('#svFotoInfo').textContent = fAngka(ukuran / 1024, 0) + ' KB → ' + fAngka(url.length * 0.75 / 1024, 0) + ' KB';
@@ -3590,7 +3621,7 @@ function stPeta(el) {
 /* ---------- Lapisan ---------- */
 function stLapisan(el) {
   var daftar = S.data.lapisan || [];
-  el.innerHTML = '<div class="baris antara" style="margin-bottom:8px"><p class="kecil redup" style="margin:0">Lapisan tambahan tampil di peta untuk semua pengguna, mis. batas HGU, tutupan lahan, atau WMS instansi. GeoJSON disimpan di satu sel (maks ± 49 KB).</p>' + (bolehAdminUbah() ? '<button class="tbl utama" id="lyBaru">+ Lapisan</button>' : '') + '</div>' +
+  el.innerHTML = '<div class="baris antara" style="margin-bottom:8px"><p class="kecil redup" style="margin:0">Lapisan tambahan tampil di peta untuk semua pengguna, mis. batas HGU, tutupan lahan, atau WMS instansi. GeoJSON sampai ± 5 MB; data di atas 45.000 karakter dipecah otomatis ke lembar "Berkas" karena satu sel Google Sheets hanya memuat 50.000 karakter.</p>' + (bolehAdminUbah() ? '<button class="tbl utama" id="lyBaru">+ Lapisan</button>' : '') + '</div>' +
     '<div class="tabel-bungkus"><table><thead><tr><th>Nama</th><th>Jenis</th><th>Tampil</th><th>Atribusi</th><th></th></tr></thead><tbody>' +
     (daftar.length ? daftar.map(function (l) { return '<tr><td><span style="display:inline-block;width:10px;height:10px;background:' + esc(l.warna) + '"></span> ' + esc(l.nama) + '</td><td>' + esc(l.jenis) + '</td><td>' + (l.tampil ? 'ya' : 'tidak') + '</td><td class="kecil">' + esc(l.atribusi) + '</td><td>' + (bolehAdminUbah() ? '<button class="tbl kecil" data-ly-ubah="' + esc(l.id) + '">Ubah</button> <button class="tbl kecil bahaya" data-ly-hapus="' + esc(l.id) + '">✕</button>' : '') + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="redup">Belum ada</td></tr>') + '</tbody></table></div>';
   if ($('#lyBaru')) $('#lyBaru').onclick = function () { bukaFormLapisan(null); };
@@ -3602,12 +3633,12 @@ function stLapisan(el) {
 }
 function bukaFormLapisan(id) {
   var l = id ? S.data.lapisan.filter(function (x) { return x.id === id; })[0] : { jenis: 'geojson', warna: '#2563eb', opasitas: 0.8, tampil: true };
-  var data = l.data || '';
+  var data = l.data || '', dataLama = !!l.dataTerpisah;
   var ruas = [{ k: 'nama', label: 'Nama', wajib: true }, { k: 'jenis', label: 'Jenis', t: 'pilih', opsi: [['geojson', 'GeoJSON (berkas)'], ['xyz', 'Ubin XYZ'], ['wms', 'WMS']] }, { k: 'url', label: 'URL (untuk XYZ/WMS)' }, { k: 'lapisWms', label: 'Nama lapis WMS' }, { k: 'atribusi', label: 'Atribusi' }, { k: 'warna', label: 'Warna', t: 'warna' }, { k: 'opasitas', label: 'Opasitas 0–1', t: 'angka', langkah: '0.05', min: 0, max: 1 }, { k: 'tampil', label: 'Tampilkan', t: 'cek' }];
-  bukaModal(id ? 'Ubah lapisan' : 'Lapisan baru', '<div class="ruas-2">' + ruas.map(function (r) { return bentukRuas(r, l[r.k]); }).join('') + '</div><div class="baris"><button class="tbl kecil" id="lyBerkas">Pilih berkas GeoJSON…</button><span class="kecil" id="lyInfo">' + (data ? fAngka(data.length) + ' karakter' : '') + '</span></div>',
+  bukaModal(id ? 'Ubah lapisan' : 'Lapisan baru', '<div class="ruas-2">' + ruas.map(function (r) { return bentukRuas(r, l[r.k]); }).join('') + '</div><div class="baris"><button class="tbl kecil" id="lyBerkas">Pilih berkas GeoJSON…</button><span class="kecil" id="lyInfo">' + (data ? fAngka(data.length) + ' karakter' : dataLama ? fAngka(l.ukuranData) + ' karakter tersimpan (tidak diubah bila tidak memilih berkas baru)' : '') + '</span></div>',
     { kaki: '<button class="tbl" data-tutup>Batal</button><button class="tbl utama" id="lySimpan">Simpan</button>' });
-  $('#lyBerkas').onclick = function () { pilihBerkas('.geojson,.json').then(function (f) { return f.length ? bacaTeks(f[0]) : null; }).then(function (t) { if (!t) return; JSON.parse(t); data = t; $('#lyInfo').textContent = fAngka(t.length) + ' karakter' + (t.length > 49000 ? ' — melebihi batas sel, sederhanakan geometrinya' : ''); }).catch(function () { toast('Berkas bukan JSON yang sah', true); }); };
-  $('#lySimpan').onclick = function () { var o = bacaRuas(ruas); o.id = id || ''; o.data = data; var tb = this; tb.disabled = true; api('lapisan_simpan', { lapisan: o }).then(function (d) { S.data.lapisan = d; simpanCache(); tutupModal(); render(); toast('Lapisan tersimpan'); }).catch(function (e) { tb.disabled = false; galatKeToast(e); }); };
+  $('#lyBerkas').onclick = function () { pilihBerkas('.geojson,.json').then(function (f) { return f.length ? bacaTeks(f[0]) : null; }).then(function (t) { if (!t) return; JSON.parse(t); data = t; dataLama = false; $('#lyInfo').textContent = fAngka(t.length) + ' karakter' + (t.length > 5000000 ? ' — melebihi batas 5 MB, sederhanakan geometrinya di QGIS' : t.length > 45000 ? ' — akan dipecah menjadi ' + Math.ceil(t.length / 45000) + ' bagian' : ''); }).catch(function () { toast('Berkas bukan JSON yang sah', true); }); };
+  $('#lySimpan').onclick = function () { var o = bacaRuas(ruas); o.id = id || ''; if (!dataLama) o.data = data; if (id && S._dataLapisan) delete S._dataLapisan[id]; if (id && S._lapisanDimuat) delete S._lapisanDimuat[id]; var tb = this; tb.disabled = true; api('lapisan_simpan', { lapisan: o }).then(function (d) { S.data.lapisan = d; simpanCache(); tutupModal(); render(); toast('Lapisan tersimpan'); }).catch(function (e) { tb.disabled = false; galatKeToast(e); }); };
 }
 
 /* ---------- Pengguna ---------- */
@@ -3673,9 +3704,18 @@ function stPerangkat(el) {
     [['Mode', MODE === 'gas' ? 'Apps Script (tautan Web App)' : 'PWA (dipasang dari hosting)'], ['Koneksi', S.online ? 'tersambung' : 'luring'], ['Data tersimpan untuk luring', fAngka(ukuran / 1024, 0) + ' KB'], ['Data terakhir dari peladen', fWaktu(S.data._disimpan || S.data.waktuServer)], ['Catatan belum terkirim', S.antrean.length], ['Service worker', MODE === 'pwa' && navigator.serviceWorker && navigator.serviceWorker.controller ? 'aktif' : 'tidak aktif']]
       .map(function (r) { return '<tr><th style="position:static;width:45%">' + r[0] + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
     '<div class="baris" style="margin-top:10px"><button class="tbl utama" id="pkMuat"' + (S.online ? '' : ' disabled') + '>Muat ulang dari peladen</button><button class="tbl bahaya" id="pkHapus">Hapus data luring</button></div></div>' +
+    (bolehAdmin() && S.data.penyimpanan ? kartuKapasitas(S.data.penyimpanan) : '') +
     '<div class="kartu"><h2>Cara kerja luring</h2><p class="kecil">Data terakhir disimpan di perangkat sehingga peta, skor, roadmap, dan cetak tetap jalan tanpa sinyal. Yang dapat dicatat saat luring: <b>survei lapangan</b> dan <b>produksi</b>. Keduanya diantrekan dan dikirim otomatis saat tersambung; setiap catatan punya penanda unik sehingga tidak tergandakan bila terkirim dua kali. Perubahan lain (blok, pengguna, setelan) butuh koneksi.</p>' +
     '<p class="kecil">Foto survei hanya dapat dilihat saat tersambung, karena tidak ikut disimpan di perangkat.</p></div></div>';
   $('#pkMuat').onclick = function () { muatData(true); };
+  if ($('#pkRapikan')) $('#pkRapikan').onclick = function () {
+    var tb = this; tb.disabled = true; tb.textContent = 'Merapikan…';
+    api('rapikan_penyimpanan', {}).then(function (l) {
+      S.data.penyimpanan = { kapasitas: l.kapasitas, berkasRusak: l.berkasRusak }; simpanCache(); renderSpanduk();
+      toast('Selesai: ' + fAngka(l.sebelum - l.sesudah) + ' sel kosong dilepas, ' + l.berkasYatim + ' bagian berkas yatim & ' + l.logDihapus + ' baris log lama dihapus');
+      stPerangkat(el);
+    }).catch(function (e) { tb.disabled = false; tb.textContent = 'Rapikan penyimpanan'; galatKeToast(e); });
+  };
   $('#pkHapus').onclick = function () {
     konfirmasi('Hapus data luring', 'Salinan data di perangkat ini dihapus. Data di Spreadsheet tidak terpengaruh.' + (S.antrean.length ? ' <b>' + S.antrean.length + ' catatan belum terkirim akan ikut hilang.</b>' : ''), 'Hapus', true).then(function (ya) {
       if (!ya) return; hapusLokal(KUNCI_DATA); hapusLokal(KUNCI_ANTREAN); S.antrean = []; toast('Data luring dihapus'); muatData(true);
@@ -3715,6 +3755,19 @@ var NASKAH_PRIVASI = '<h2>Pemberitahuan privasi</h2>' + NASKAH_CATATAN_HUKUM +
   '<h3>Yang tidak dilakukan aplikasi</h3><ul><li>Tidak mengirim data ke penyedia perangkat lunak.</li><li>Tidak memakai layanan analitik, iklan, atau pelacak.</li><li>Tidak melacak lokasi di latar belakang.</li></ul>' +
   '<h3>Perlu diketahui</h3><p>Siapa pun yang memiliki akses edit/lihat ke Spreadsheet di Google Drive dapat membaca seluruh data <b>tanpa melalui pemeriksaan peran aplikasi</b>. Batasi berbagi berkas hanya kepada admin.</p>' +
   '<h3>Hak subjek data</h3><p>Pengguna dapat meminta akses, perbaikan, atau penghapusan data pribadinya kepada admin organisasi: [ISI kontak pengendali data].</p>';
+
+function kartuKapasitas(pn) {
+  var k = pn.kapasitas, warna = k.persen >= 92 ? 'var(--bahaya)' : k.persen >= 80 ? 'var(--waspada)' : 'var(--daun)';
+  return '<div class="kartu"><h2>Kapasitas Spreadsheet</h2>' +
+    '<p class="kecil">Google Sheets membatasi <b>10 juta sel</b> per berkas (termasuk sel kosong) dan <b>50.000 karakter</b> per sel. Aplikasi memecah isian panjang (poligon rinci, GeoJSON, foto) ke lembar "Berkas" per 45.000 karakter.</p>' +
+    '<div class="baris antara kecil"><span>' + fAngka(k.sel) + ' dari ' + fAngka(k.batas) + ' sel</span><b style="color:' + warna + '">' + fAngka(k.persen, 1) + '%</b></div>' +
+    '<div class="batang" style="margin:6px 0 10px"><i style="width:' + Math.min(100, k.persen) + '%;background:' + warna + '"></i></div>' +
+    '<div class="tabel-bungkus"><table><thead><tr><th>Lembar</th><th class="n">Baris data</th><th class="n">Sel</th></tr></thead><tbody>' +
+    k.lembar.slice(0, 8).map(function (x) { return '<tr><td>' + esc(x.nama) + '</td><td class="n">' + fAngka(x.baris) + '</td><td class="n">' + fAngka(x.sel) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+    (pn.berkasRusak && pn.berkasRusak.length ? '<div class="catatan-kendala" style="margin-top:8px"><b>Rujukan rusak:</b> ' + esc(pn.berkasRusak.map(function (x) { return x.lembar + ' ' + x.kunci + ' (' + x.kolom + ')'; }).join(', ')) + '. Bagian di lembar "Berkas" hilang; pulihkan lewat File ▸ Riwayat versi, atau isi ulang datanya.</div>' : '') +
+    '<div class="baris" style="margin-top:10px"><button class="tbl" id="pkRapikan"' + (S.online ? '' : ' disabled') + '>Rapikan penyimpanan</button></div>' +
+    '<p class="kecil redup">Merapikan melepas baris/kolom kosong di ujung lembar aplikasi, menghapus bagian berkas yang tidak lagi dirujuk, dan memangkas log ke ' + fAngka(25000) + ' baris terbaru. Isi data tidak diubah. Jangan menyunting lembar "Berkas" secara manual.</p></div>';
+}
 
 /* ================= 12-masuk.js : masuk, muat data, mulai ================= */
 function tampilkanMasuk(pesan) {
