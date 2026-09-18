@@ -829,10 +829,13 @@ svg text{font-family:var(--fon)}
 /* Cetak */
 #lembarCetak{display:none}
 @media print{
-  @page{size:A3 landscape;margin:8mm}
+  /* Lembar cetak mengisi halaman persis. Semua yang lain disembunyikan, margin & scroll dinolkan
+   * supaya tidak ada halaman kedua yang kosong dan gambar tidak terpotong. */
+  @page{margin:0}
+  html,body{background:#fff!important;margin:0!important;padding:0!important;width:auto!important;height:auto!important;overflow:visible!important}
   body>*:not(#lembarCetak){display:none!important}
-  #lembarCetak{display:block!important}
-  html,body{background:#fff}
+  #lembarCetak{display:block!important;position:static;margin:0;padding:0;overflow:hidden;break-inside:avoid;page-break-inside:avoid;break-after:avoid;page-break-after:avoid}
+  #lembarCetak svg{display:block;margin:0;max-width:none;max-height:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 .hanya-layar{}
 </style>
@@ -857,7 +860,7 @@ svg text{font-family:var(--fon)}
  * persis; jangan menyunting salinannya, sunting berkas ini lalu rakit ulang.
  * ===================================================================== */
 
-var MESIN_VERSI = '1.1.0';
+var MESIN_VERSI = '1.1.1';
 
 var KRITERIA = [
   { k: 'umur', label: 'Umur tanaman' },
@@ -1333,7 +1336,7 @@ var LISENSI_LEAFLET = "BSD 2-Clause License\n\nCopyright (c) 2010-2023, Volodymy
 </script>
 <script>
 /* ================= 01-inti.js : keadaan, API, luring ================= */
-var VERSI_KLIEN = '1.1.0';
+var VERSI_KLIEN = '1.1.1';
 var MODE = (typeof google !== 'undefined' && google.script && google.script.run) ? 'gas' : 'pwa';
 var KUNCI_TOKEN = 'sgis_token', KUNCI_DATA = 'sgis_data_v1', KUNCI_ANTREAN = 'sgis_antrean_v1', KUNCI_PREF = 'sgis_pref_v1';
 var AKSI_ANTREAN = { survei_simpan: 1, produksi_simpan: 1 };
@@ -3346,6 +3349,8 @@ function renderCetak(isi) {
     bentukRuas({ k: 'ctTema', label: 'Tema', t: 'pilih', opsi: TEMATIK }, o.tematik) +
     bentukRuas({ k: 'ctKertas', label: 'Kertas', t: 'pilih', opsi: Object.keys(KERTAS).map(function (k) { return [k, KERTAS[k][2]]; }) }, o.kertas) +
     bentukRuas({ k: 'ctLabel', label: 'Label ID blok', t: 'cek' }, o.label) + bentukRuas({ k: 'ctInfra', label: 'Infrastruktur', t: 'cek' }, o.infra) + bentukRuas({ k: 'ctTabel', label: 'Tabel ringkasan', t: 'cek' }, o.tabel) +
+    bentukRuas({ k: 'ctUbin', label: 'Cetak peta dasar (citra/ubin)', t: 'cek', nonaktif: !adaPetaDasar(), bantu: adaPetaDasar() ? 'Ubin diambil dari layanan peta dasar lalu ditanam ke lembar. Pastikan lisensinya mengizinkan pencetakan.' : 'Peta dasar masih kisi polos. Admin dapat memasangnya di Setelan ▸ Peta Dasar.' }, o.ubin && adaPetaDasar()) +
+    (adaPetaDasar() ? bentukRuas({ k: 'ctUbinOpasitas', label: 'Kepekatan warna blok di atas peta dasar (%)', t: 'angka', min: 20, max: 100, langkah: '5' }, o.ubinOpasitas || 55) : '') +
     '<details><summary class="kecil"><b>Keterangan lembar</b></summary>' +
     bentukRuas({ k: 'ctInstansi', label: 'Instansi / perusahaan' }, t.instansi) + bentukRuas({ k: 'ctPenyusun', label: 'Disusun oleh' }, t.penyusun || S.data.saya.nama) + bentukRuas({ k: 'ctPemeriksa', label: 'Diperiksa oleh' }, t.pemeriksa) +
     bentukRuas({ k: 'ctNomor', label: 'Nomor lembar' }, t.nomorLembar) + bentukRuas({ k: 'ctSumber', label: 'Sumber data', t: 'area' }, t.sumberData || 'Basis data SawitGIS; poligon blok hasil pengukuran/digitasi') +
@@ -3357,9 +3362,14 @@ function renderCetak(isi) {
   function baca() {
     o.judul = $('#f_ctJudul').value; o.subjudul = $('#f_ctSub').value; o.tematik = $('#f_ctTema').value; o.kertas = $('#f_ctKertas').value;
     o.label = $('#f_ctLabel').checked; o.infra = $('#f_ctInfra').checked; o.tabel = $('#f_ctTabel').checked;
+    o.ubin = adaPetaDasar() && $('#f_ctUbin').checked;
+    if ($('#f_ctUbinOpasitas')) o.ubinOpasitas = Math.min(100, Math.max(20, Number($('#f_ctUbinOpasitas').value) || 55));
     o.ket = { instansi: $('#f_ctInstansi').value, penyusun: $('#f_ctPenyusun').value, pemeriksa: $('#f_ctPemeriksa').value, nomorLembar: $('#f_ctNomor').value, sumberData: $('#f_ctSumber').value };
   }
-  function gambar() { baca(); $('#ctPratinjau').innerHTML = svgLembarPeta(o); }
+  function gambar() {
+    baca();
+    $('#ctPratinjau').innerHTML = svgLembarPeta(o, gambar) + (o.ubin && U.sibuk ? '<p class="kecil redup">Mengambil ubin peta dasar…</p>' : '');
+  }
   var jeda;
   isi.oninput = function () { clearTimeout(jeda); jeda = setTimeout(gambar, 250); };
   isi.onchange = gambar;
@@ -3369,22 +3379,110 @@ function renderCetak(isi) {
   if ($('#ctSimpanKet')) $('#ctSimpanKet').onclick = function () { baca(); api('setelan_simpan', { kunci: 'tataLetak', nilai: o.ket }).then(function (v) { S.data.setelan.tataLetak = v; simpanCache(); toast('Keterangan lembar tersimpan'); }).catch(galatKeToast); };
 }
 
+/* Ukuran halaman dan lembar ditulis dalam mm yang sama persis dengan viewBox SVG.
+ * Tinggi svg dikurangi 0,2 mm: pembulatan piksel peramban kerap membuat lembar seukuran halaman
+ * tumpah 1 baris ke halaman kedua yang kosong. */
 function cetakLembar(svg, kertas) {
-  var k = KERTAS[kertas] || KERTAS.A3L;
+  var k = KERTAS[kertas] || KERTAS.A3L, w = k[0], h = k[1];
   var gaya = $('#gayaHalaman') || document.head.appendChild(Object.assign(document.createElement('style'), { id: 'gayaHalaman' }));
-  gaya.textContent = '@media print{@page{size:' + k[0] + 'mm ' + k[1] + 'mm;margin:0}#lembarCetak svg{width:' + k[0] + 'mm;height:' + k[1] + 'mm;display:block}}';
-  $('#lembarCetak').innerHTML = svg;
-  setTimeout(function () { window.print(); }, 150);
+  gaya.textContent = '@media print{@page{size:' + w + 'mm ' + h + 'mm;margin:0}' +
+    '#lembarCetak{width:' + w + 'mm;height:' + h + 'mm}' +
+    '#lembarCetak svg{width:' + w + 'mm;height:' + (h - 0.2) + 'mm}}';
+  var el = $('#lembarCetak');
+  el.innerHTML = svg;
+  var svgEl = el.querySelector('svg');
+  if (svgEl) { svgEl.removeAttribute('style'); svgEl.setAttribute('width', w + 'mm'); svgEl.setAttribute('height', (h - 0.2) + 'mm'); svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet'); }
+  var gbr = el.querySelectorAll('image'), sisa = gbr.length;
+  function cetak() { setTimeout(function () { window.print(); }, 60); }
+  if (!sisa) return cetak();
+  // Tunggu gambar peta dasar benar-benar terurai sebelum dialog cetak dibuka
+  var batas = setTimeout(cetak, 3000), selesai = 0;
+  Array.prototype.forEach.call(gbr, function (g) {
+    var im = new Image();
+    im.onload = im.onerror = function () { if (++selesai === sisa) { clearTimeout(batas); cetak(); } };
+    im.src = g.getAttribute('href') || g.getAttribute('xlink:href');
+  });
 }
 
-function svgLembarPeta(o) {
+/* ---------- Peta dasar untuk cetak ----------
+ * Ubin XYZ / WMS diambil dengan crossOrigin lalu digambar ke kanvas dan ditanam sebagai satu
+ * gambar JPEG di dalam SVG. Peladen ubin yang tidak mengirim header CORS tidak bisa dipakai:
+ * kanvasnya "tercemar" dan tidak bisa diekspor. Itu dilaporkan apa adanya, bukan diam-diam kosong. */
+var U = { kunci: '', url: '', sibuk: false, galat: '' };
+function adaPetaDasar() { var c = S.data.setelan.peta || {}; return !!(c.url && (c.jenis === 'xyz' || c.jenis === 'wms')); }
+function ubinXY(la, lo, z) { var n = Math.pow(2, z), r = la * Math.PI / 180; return [(lo + 180) / 360 * n, (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n]; }
+function xyKeLatLng(x, y, z) { var n = Math.pow(2, z), r = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))); return [r * 180 / Math.PI, x / n * 360 - 180]; }
+function muatGambar(url) {
+  return new Promise(function (ok) {
+    var im = new Image();
+    im.crossOrigin = 'anonymous';
+    im.onload = function () { ok(im); };
+    im.onerror = function () { ok(null); };
+    im.src = url;
+  });
+}
+function siapkanUbinCetak(peta, proj, batas, kunci, saatSelesai) {
+  var cfg = S.data.setelan.peta || {};
+  U.sibuk = true; U.galat = '';
+  var pxPerMm = 8, lebarPx = Math.min(4200, Math.round(peta.w * pxPerMm)), tinggiPx = Math.round(peta.h * pxPerMm);
+  var k = lebarPx / peta.w;
+  var kv = document.createElement('canvas'); kv.width = lebarPx; kv.height = tinggiPx;
+  var ctx = kv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lebarPx, tinggiPx);
+  function ke(la, lo) { var p = proj(la, lo); return [(p[0] - peta.x) * k, (p[1] - peta.y) * k]; }
+  function selesai(pesan) {
+    U.sibuk = false; U.galat = pesan || '';
+    if (!pesan) { try { U.url = kv.toDataURL('image/jpeg', 0.82); U.kunci = kunci; } catch (e) { U.url = ''; U.kunci = ''; U.galat = 'Peladen peta dasar tidak mengizinkan pengambilan gambar lintas domain (CORS), jadi ubinnya tidak dapat ikut dicetak.'; } }
+    else { U.url = ''; U.kunci = ''; }
+    if (U.galat) toast(U.galat, true);
+    saatSelesai();
+  }
+  if (cfg.jenis === 'wms') {
+    var url = cfg.url + (cfg.url.indexOf('?') < 0 ? '?' : '&') + 'SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=' + encodeURIComponent(cfg.lapis || '') +
+      '&STYLES=&FORMAT=image/png&TRANSPARENT=false&SRS=EPSG:4326&WIDTH=' + Math.min(2048, lebarPx) + '&HEIGHT=' + Math.min(2048, tinggiPx) +
+      '&BBOX=' + [batas.minLo, batas.minLa, batas.maxLo, batas.maxLa].join(',');
+    return muatGambar(url).then(function (im) {
+      if (!im) return selesai('Layanan WMS tidak dapat dimuat untuk dicetak. Periksa URL, nama lapis, dan izin CORS peladen.');
+      var kiriAtas = ke(batas.maxLa, batas.minLo), kananBawah = ke(batas.minLa, batas.maxLo);
+      ctx.drawImage(im, kiriAtas[0], kiriAtas[1], kananBawah[0] - kiriAtas[0], kananBawah[1] - kiriAtas[1]);
+      selesai('');
+    });
+  }
+  // XYZ: pilih zoom yang resolusinya cukup untuk cetak, lalu susun ubin
+  var lat0 = (batas.minLa + batas.maxLa) / 2;
+  var mPerPx = ((batas.maxLo - batas.minLo) * 111320 * Math.cos(lat0 * Math.PI / 180)) / lebarPx;
+  var z = 0;
+  while (z < (cfg.maksZoom || 19) && 156543.03392 * Math.cos(lat0 * Math.PI / 180) / Math.pow(2, z + 1) > mPerPx) z++;
+  var a = ubinXY(batas.maxLa, batas.minLo, z), b = ubinXY(batas.minLa, batas.maxLo, z);
+  var x0 = Math.floor(a[0]), x1 = Math.floor(b[0]), y0 = Math.floor(a[1]), y1 = Math.floor(b[1]);
+  var jumlah = (x1 - x0 + 1) * (y1 - y0 + 1);
+  if (jumlah > 400) return Promise.resolve(selesai('Cakupan peta terlalu luas untuk skala ini: butuh ' + jumlah + ' ubin. Kecilkan saringan atau pakai kertas lebih kecil.'));
+  var daftar = [];
+  for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) daftar.push([x, y]);
+  var gagal = 0;
+  return daftar.reduce(function (rantai, t) {
+    return rantai.then(function () {
+      var url = cfg.url.replace('{z}', z).replace('{x}', t[0]).replace('{y}', t[1]).replace('{s}', 'abc'[(t[0] + t[1]) % 3]).replace('{r}', '');
+      return muatGambar(url).then(function (im) {
+        if (!im) { gagal++; return; }
+        var na = xyKeLatLng(t[0], t[1], z), nb = xyKeLatLng(t[0] + 1, t[1] + 1, z);
+        var p1 = ke(na[0], na[1]), p2 = ke(nb[0], nb[1]);
+        ctx.drawImage(im, p1[0], p1[1], Math.ceil(p2[0] - p1[0]) + 1, Math.ceil(p2[1] - p1[1]) + 1);
+      });
+    });
+  }, Promise.resolve()).then(function () {
+    selesai(gagal === daftar.length ? 'Tidak ada ubin peta dasar yang berhasil dimuat. Periksa URL, kunci, dan izin CORS peladen ubin.' : '');
+  });
+}
+
+function svgLembarPeta(o, saatUbinSiap) {
   var K = KERTAS[o.kertas] || KERTAS.A3L, W = K[0], H = K[1], potret = H > W;
   var m = 8, panel = potret ? 0 : Math.min(110, W * 0.27), bawahPanel = potret ? 95 : 0;
   var peta = { x: m + 2, y: m + 2, w: W - 2 * m - 4 - (panel ? panel + 3 : 0), h: H - 2 * m - 4 - (bawahPanel ? bawahPanel + 3 : 0) };
   var rencana = o.tematik === 'rencana' ? tahunRencanaBlok() : {};
   var blok = blokTersaring().map(function (b) { return { b: b, pg: bacaPoligon(b.poligon), h: S.hasilPer[b.id] }; }).filter(function (x) { return x.pg; });
   var e = function (s) { return esc(s); };
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="background:#fff;font-family:Arial,Helvetica,sans-serif;max-width:' + (W * 3) + 'px">';
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="background:#fff;font-family:Arial,Helvetica,sans-serif;display:block;height:auto">';
   svg += '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#fff"/><rect x="' + m + '" y="' + m + '" width="' + (W - 2 * m) + '" height="' + (H - 2 * m) + '" fill="none" stroke="#000" stroke-width="0.6"/>';
   svg += '<rect x="' + peta.x + '" y="' + peta.y + '" width="' + peta.w + '" height="' + peta.h + '" fill="#fff" stroke="#000" stroke-width="0.35"/>';
   if (!blok.length) {
@@ -3402,6 +3500,17 @@ function svgLembarPeta(o) {
     proj = function (la, lo) { return [peta.x + peta.w / 2 + (lo - cLo) * kx * mmPerM, peta.y + peta.h / 2 - (la - cLa) * ky * mmPerM]; };
     var tepiLo = (peta.w / 2) / (kx * mmPerM), tepiLa = (peta.h / 2) / (ky * mmPerM);
     svg += '<defs><clipPath id="klipPeta"><rect x="' + peta.x + '" y="' + peta.y + '" width="' + peta.w + '" height="' + peta.h + '"/></clipPath></defs><g clip-path="url(#klipPeta)">';
+    if (o.ubin && adaPetaDasar()) {
+      var cfgU = S.data.setelan.peta;
+      var batasU = { minLa: cLa - tepiLa, maxLa: cLa + tepiLa, minLo: cLo - tepiLo, maxLo: cLo + tepiLo };
+      var kunciU = [o.kertas, cfgU.jenis, cfgU.url, cfgU.lapis || '', bulat(cLa, 6), bulat(cLo, 6), skala, bulat(peta.w, 2), bulat(peta.h, 2)].join('|');
+      if (U.kunci === kunciU && U.url) {
+        svg += '<image href="' + U.url + '" xlink:href="' + U.url + '" x="' + peta.x + '" y="' + peta.y + '" width="' + peta.w + '" height="' + peta.h + '" preserveAspectRatio="none"/>';
+      } else if (!U.sibuk && U.kunciGagal !== kunciU && saatUbinSiap) {
+        U.kunciGagal = kunciU;
+        siapkanUbinCetak(peta, proj, batasU, kunciU, function () { if (U.kunci === kunciU) U.kunciGagal = ''; saatUbinSiap(); });
+      }
+    }
     // Graticule
     var langkah = langkahBulat((tepiLo * 2) / 5);
     var des = Math.max(0, -Math.floor(Math.log10(langkah)));
@@ -3420,10 +3529,11 @@ function svgLembarPeta(o) {
       });
     }
     var jumlah = {};
+    var adaUbin = (o.ubin && U.url && U.kunci === kunciU) ? Math.min(1, Math.max(0.2, (o.ubinOpasitas || 55) / 100)) : 0.75;
     blok.forEach(function (x) {
       var k = kelasBlok(o.tematik, x.h, rencana); jumlah[k] = (jumlah[k] || 0) + 1;
       var d = x.pg.map(function (p, i) { var q = proj(p[0], p[1]); return (i ? 'L' : 'M') + q[0].toFixed(2) + ' ' + q[1].toFixed(2); }).join('') + 'Z';
-      svg += '<path d="' + d + '" fill="' + warnaKelas(o.tematik, k) + '" fill-opacity="0.75" stroke="#222" stroke-width="0.25"/>';
+      svg += '<path d="' + d + '" fill="' + warnaKelas(o.tematik, k) + '" fill-opacity="' + adaUbin + '" stroke="#222" stroke-width="' + (adaUbin < 0.7 ? 0.35 : 0.25) + '"/>';
     });
     if (o.label) {
       var ukuran = Math.max(1.6, Math.min(3.2, 1000 / skala * 6));
@@ -3476,6 +3586,8 @@ function svgLembarPeta(o) {
   var ket = o.ket || {};
   var bawah = py + ph - 4, baris = [];
   if (ket.sumberData) baris.push('Sumber: ' + ket.sumberData);
+  // Atribusi peta dasar wajib ikut tercetak selama ubinnya dipakai
+  if (o.ubin && U.url && (S.data.setelan.peta || {}).atribusi) baris.push('Peta dasar: ' + S.data.setelan.peta.atribusi);
   baris.push('Bobot MCDA: ' + KRITERIA.map(function (k) { return k.label.split(' ')[0] + ' ' + S.bobotAktif[k.k]; }).join(', '));
   if (ket.pemeriksa) baris.push('Diperiksa: ' + ket.pemeriksa);
   if (ket.penyusun) baris.push('Disusun: ' + ket.penyusun + ' · dicetak ' + fTanggal(new Date().toISOString()));

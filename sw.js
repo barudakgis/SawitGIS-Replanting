@@ -3,7 +3,7 @@
  * index.html: jaringan dulu (pembaruan langsung terasa), cadangan dari cache bila luring.
  * config.js: SELALU jaringan dulu dan TIDAK di-precache, agar perubahan apiUrl tidak tertahan.
  * Permintaan ke domain lain (Apps Script, ubin peta) tidak disentuh. */
-var CACHE_VERSION = 'sgis-v1.1.0';
+var CACHE_VERSION = 'sgis-v1.1.1';
 var CANGKANG = ['./', './index.html', './manifest.webmanifest', './ikon.svg'];
 
 self.addEventListener('install', function (e) {
